@@ -19,6 +19,7 @@ logger.info("planktoscope.light is loaded")
 def i2c_update():
     # Update the I2C Bus in order to really update the LEDs new values
     subprocess.Popen("i2cdetect -y 1".split(), stdout=subprocess.PIPE)  # nosec
+
 class i2c_led:
     """
     LM36011 Led controller
@@ -126,7 +127,7 @@ class i2c_led:
     def deactivate_torch(self):
         logger.debug("Deactivate torch")
         self._write_byte(self.Register.enable, 0b00)
-        self.off = False
+        self.on = False
 
     def _write_byte(self, address, data):
         with smbus.SMBus(1) as bus:
@@ -174,6 +175,8 @@ class LightProcess(multiprocessing.Process):
         if led == 0:
             logger.debug("Turning led 1 off")
         self.led.deactivate_torch()
+        # Publish LED off state to ensure dashboard updates correctly
+        self.light_client.client.publish("status/light", '{"status":"Led 1: Off"}')
 
     def led_on(self, led):
         if led not in [0]:
@@ -182,6 +185,8 @@ class LightProcess(multiprocessing.Process):
             logger.debug("Turning led 1 on")
             self.led.output_to_led1()
         self.led.activate_torch()
+        # Publish LED on state to ensure dashboard updates correctly
+        self.light_client.client.publish("status/light", '{"status":"Led 1: On"}')
 
     @logger.catch
     def treat_message(self):
@@ -217,6 +222,10 @@ class LightProcess(multiprocessing.Process):
         # Publish the status "Ready" to via MQTT to Node-RED
         self.light_client.client.publish("status/light", '{"status":"Ready"}')
         logger.success("Light module is READY!")
+
+        # Ensure LED is off after restart and publish state
+        self.led_off(0)
+
         # This is the loop
         while not self.stop_event.is_set():
             self.treat_message()
